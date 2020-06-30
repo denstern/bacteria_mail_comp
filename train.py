@@ -14,6 +14,8 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import os
 import cv2
+import pandas as pd
+import base64
 import apex.amp as amp
 
 warnings.filterwarnings('ignore')
@@ -196,9 +198,38 @@ def predict_masks(args, model):
         if not os.path.exists(results_path):
             os.mkdir(results_path)
         cv2.imwrite(os.path.join(results_path, tail), img_arr)
-        # index += 1
+        index += 1
         # if index == 10:
         #     break
+
+
+def create_submission():
+    sample_subm = pd.read_csv(os.path.join(args.root_dir, 'sample_submission.csv'))
+    print(sample_subm.head())
+    print(sample_subm.columns)
+    df_sub = pd.DataFrame(columns = ['id', 'class', 'base64 encoded PNG (mask)'])
+    res_path = os.path.join(args.root_dir, 'results')
+    results_files = os.listdir(res_path)
+    sub_list = []
+    for ind, file in enumerate(results_files):
+        # print(sample_subm.iloc[ind])
+        file_name = os.path.join(res_path, file)
+        with open(file_name, 'rb') as img:
+            enc_string = base64.b64encode(img.read())
+            sub_list.append(['{0:03}'.format(ind+1), sample_subm['class'].iloc[ind],
+                            enc_string.decode('utf-8')])
+    # print(np.array(sub_list))
+    df = pd.DataFrame(sub_list, columns = ['id', 'class', 'base64 encoded PNG (mask)'])
+    # df_sub = df_sub.append(sub_list, ignore_index=True)
+    df.to_csv('submission_1.csv', index = False)
+
+def read_submission():
+    df = pd.read_csv('submission_1.csv')
+    img_enc = df[df.columns[2]].iloc[1]
+    with open('tmp_bacteria.png', 'wb') as fp:
+        fp.write(base64.b64decode(df[df.columns[2]].iloc[1].encode()))
+    mask = cv2.imread('tmp_bacteria.png', 0)
+    print()
 
 
 
@@ -222,5 +253,7 @@ if __name__ == '__main__':
         device='cuda:' + str(current_device))
     # model = train_models(args=args)
     # torch.save(model, 'test_model.pth')
-    model = torch.load('best_models.pth')
-    predict_masks(args, model)
+    # model = torch.load('best_models.pth')
+    # predict_masks(args, model)
+    create_submission()
+    # read_submission()
