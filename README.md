@@ -1,2 +1,4 @@
-# bacteria_mail_comp
-Segmentation and classification bacteria on images
+# Bacteria Mail competition
+Task: Segmentation and classification bacteria on images
+
+Competition link: https://cups.mail.ru/tasks/1030
