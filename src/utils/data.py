@@ -7,10 +7,11 @@ import numpy as np
 import pandas as pd
 from torch.utils import data
 import torch
+
 logger = logging.getLogger('TRAIN_file.DATA')
 
 
-class Dataset:
+class DatasetSegm:
     def __init__(self,
                  dataset_path='/home/denis/datasets/bacteria',
                  random_state=17,
@@ -68,7 +69,7 @@ class Dataset:
             mask_val_path = np.array([file.replace('train', 'mask') for file in img_val_path])
             img_train_path = np.concatenate(np.delete(self.chunks, fold))
             mask_train_path = np.array([file.replace('train', 'mask') for file in img_train_path])
-            train = zip(img_train_path, mask_train_path, list([[512,640]] * len(img_train_path)))
+            train = zip(img_train_path, mask_train_path, list([[512, 640]] * len(img_train_path)))
             val = zip(img_val_path, mask_val_path, list([[512, 640]] * len(img_val_path)))
         else:
             img_train_path = np.concatenate(self.chunks)
@@ -79,11 +80,11 @@ class Dataset:
 
     def get_test_path(self):
         img_test_path = np.array([os.path.join(self.test_path, file) for file in os.listdir(self.test_path)])
-        test = zip(img_test_path, img_test_path, list([[512,640]] * len(img_test_path)))
+        test = zip(img_test_path, img_test_path, list([[512, 640]] * len(img_test_path)))
         return list(test)
 
 
-class Data(data.Dataset):
+class DataSegm(data.Dataset):
     def __init__(self, pathes_shapes, transform, img_size=(256, 512)):
         self.pathes = pathes_shapes
         self.img_size = img_size
@@ -97,7 +98,7 @@ class Data(data.Dataset):
         msk = (cv2.imread(self.pathes[index][1])).astype(np.int)
         img, msk = self.transform(img, msk)
         # img = torch.from_numpy(img.transpose(2, 0, 1))
-        msk = (msk[0,:,:].unsqueeze(0) / 255).int()
+        msk = (msk[0, :, :].unsqueeze(0) / 255).int()
         img = img / 255 - 0.5
         # msk = torch.from_numpy(msk.transpose(2, 0, 1))[0,:,:].unsqueeze(0)
         # shape = self.pathes[index][2]
@@ -105,4 +106,96 @@ class Data(data.Dataset):
         # msk = cv2.resize(msk.reshape((shape[0], shape[1], 1)), self.img_size, interpolation=0)
         # return np.expand_dims(img / 255 - 0.5, axis=0).astype(np.float32), \
         #        np.expand_dims(msk, axis = 2).astype(np.int)
-        return img , msk
+        return img, msk
+
+
+class DatasetCls:
+    def __init__(self,
+                 dataset_path='/home/denis/datasets/bacteria',
+                 random_state=17,
+                 folds=4
+                 ):
+        np.random.seed(random_state)
+        random.seed(random_state)
+        self.train_path = os.path.join(dataset_path, 'train')
+        self.test_path = os.path.join(dataset_path, 'test')
+
+        self.labels_dict = self.read_labels(self.train_path)
+
+        if folds:
+            self.folds = max(0, folds)
+            self.chunks = self.split_train(self.train_path)
+        else:
+            self.folds = None
+
+    def read_labels(self, train_path):
+        labels = {}
+        files_json = [os.path.join(train_path, f) for f in os.listdir(train_path) if
+                      f.endswith('.json')]
+        for file in files_json:
+            with open(file, 'r') as json_file:
+                layout = json.load(json_file)
+                label = layout['shapes'][0]['label']
+                head, tail = os.path.split(file)
+                labels.update({tail[:-4] + 'png': label})
+        logger.info('Labels were read')
+        return labels
+
+    def split_train(self, train_path):
+        files_png = [os.path.join(train_path, f) for f in os.listdir(train_path) if
+                     f.endswith('.png')]
+        random.shuffle(files_png)
+        chunks = np.array_split(files_png, 4)
+        return chunks
+
+    def get_pathes_train_val(self, fold):
+        assert fold <= self.folds - 1
+        img_val_path = self.chunks[fold]
+        val_labels = np.array([self.labels_dict[os.path.split(file)[1]] for file in img_val_path])
+        img_train_path = np.concatenate(np.delete(self.chunks, fold))
+        train_labels = np.array([self.labels_dict[os.path.split(file)[1]] for file in img_train_path])
+        train = zip(img_train_path, train_labels)
+        val = zip(img_val_path, val_labels)
+        return list(train), list(val)
+
+    def get_test_path(self):
+        img_test_path = np.array([os.path.join(self.test_path, file) for file in os.listdir(self.test_path)])
+        test = zip(img_test_path, list([[512, 640]] * len(img_test_path)))
+        return list(test)
+
+
+labels = ['staphylococcus_epidermidis', 'klebsiella_pneumoniae',
+          'staphylococcus_aureus', 'moraxella_catarrhalis',
+          'c_kefir', 'ent_cloacae']
+
+
+class DataCls(data.Dataset):
+    def __init__(self, pathes_shapes, transform, img_size=(256, 512)):
+        self.pathes = pathes_shapes
+        self.img_size = img_size
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.pathes)
+
+    def __getitem__(self, index):
+        img = cv2.imread(self.pathes[index][0]).astype(np.float32)
+        img = torch.from_numpy(img.transpose(2, 0, 1))
+        img = img / 255 - 0.5
+        label = self.pathes[index][1]
+        if not isinstance(label, str): return img
+        label_ind = labels.index(label)
+        label_enc = torch.zeros(len(labels), dtype=torch.float32)
+        label_enc[label_ind] = 1.
+
+        # img, label = self.transform(img, label)
+
+        # msk = (msk[0, :, :].unsqueeze(0) / 255).int()
+
+        # msk = torch.from_numpy(msk.transpose(2, 0, 1))[0,:,:].unsqueeze(0)
+        # shape = self.pathes[index][2]
+        # img = cv2.resize(img.reshape((shape[0], shape[1], 3)), self.img_size, cv2.INTER_LINEAR) / 255  # - 0.5
+        # msk = cv2.resize(msk.reshape((shape[0], shape[1], 1)), self.img_size, interpolation=0)
+        # return np.expand_dims(img / 255 - 0.5, axis=0).astype(np.float32), \
+        #        np.expand_dims(msk, axis = 2).astype(np.int)
+        return img, label_enc

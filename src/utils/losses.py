@@ -99,3 +99,54 @@ class DiceBCELoss(smp.utils.base.Loss):
         ce_value = F.binary_cross_entropy(iflat, tflat, reduction='mean')
         loss = ce_value + dice_value
         return loss
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, logits=False, reduce=True):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.logits = logits
+        self.reduce = reduce
+
+    def forward(self, inputs, targets):
+        # targets = torch.argmax(targets, 1)
+        # inputs = torch.argmax(inputs, 1)
+        if self.logits:
+            CE_loss = F.binary_cross_entropy_with_logits(inputs, targets)
+        else:
+            # BCE_loss = F.binary_cross_entropy(inputs, targets)
+            _, labels = targets.max(dim=1)
+            CE_loss = nn.CrossEntropyLoss()(inputs, labels)
+
+        pt = torch.exp(-CE_loss)
+        F_loss = self.alpha * (1-pt)**self.gamma * CE_loss
+
+        if self.reduce:
+            return torch.mean(F_loss)
+        else:
+            return F_loss
+
+
+class LabelSmoothing(nn.Module):
+    def __init__(self, smoothing=0.1):
+        super(LabelSmoothing, self).__init__()
+        self.confidence = 1.0 - smoothing
+        self.smoothing = smoothing
+
+    def forward(self, x, target):
+        if self.training:
+            x = x.float()
+            target = target.float()
+            logprobs = torch.nn.functional.log_softmax(x, dim=-1)
+
+            nll_loss = -logprobs * target
+            nll_loss = nll_loss.sum(-1)
+
+            smooth_loss = -logprobs.mean(dim=-1)
+
+            loss = self.confidence * nll_loss + self.smoothing * smooth_loss
+
+            return loss.mean()
+        else:
+            return torch.nn.functional.cross_entropy(x, target)
